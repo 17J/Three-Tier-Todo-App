@@ -1,0 +1,68 @@
+---
+# Deployment for MySQL Database
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-deployment
+spec:
+  replicas: 1 # For production, consider using a managed database service or a more robust MySQL setup.
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql-container
+          image: mysql:8 # or any other version. Use specific tags instead of 'latest'
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: yourrootpassword #replace. Use Kubernetes Secrets!
+            - name: MYSQL_DATABASE
+              value: yourdatabase #replace
+            - name: MYSQL_USER
+              value: yourdbusername #replace. Use Kubernetes Secrets!
+            - name: MYSQL_PASSWORD
+              value: yourdbpassword #replace. Use Kubernetes Secrets!
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: mysql-data
+          persistentVolumeClaim: # For production, use persistent volumes.
+            claimName: mysql-pv-claim # replace with your persistent volume claim name.
+          # For production, add resource requests/limits.
+          livenessProbe:
+            tcpSocket:
+              port: 3306
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 3306
+            initialDelaySeconds: 30
+            periodSeconds: 5
+          startupProbe:
+            tcpSocket:
+              port: 3306
+            failureThreshold: 30
+            periodSeconds: 10
+
+---
+# Service for MySQL Database
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+spec:
+  selector:
+    app: mysql
+  ports:
+    - protocol: TCP
+      port: 3306
+      targetPort: 3306
+  type: ClusterIP # Internal service.
