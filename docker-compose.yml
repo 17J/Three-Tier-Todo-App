@@ -1,5 +1,4 @@
-
-version: '3.8'
+version: "3.8"
 
 services:
   frontend:
@@ -14,7 +13,7 @@ services:
     depends_on:
       - backend
     environment:
-      - VITE_API_URL=http://localhost:8080/api
+      - API_BASE_URL=http://localhost:8080/api
     networks:
       - app-network
 
