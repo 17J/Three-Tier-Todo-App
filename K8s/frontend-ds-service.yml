@@ -18,6 +18,9 @@ spec:
           image: 17rj/three-tier-todo-frontend:latest # Replace with your React app image. Use specific tags instead of 'latest' for immutability
           ports:
             - containerPort: 3000 # Default React port
+          env:
+            - name: REACT_APP_BACKEND_URL
+              value: "http://backend-service:8080" # Replace with actual backend service name if different
           # Add resource requests/limits for production
           # resources:
           #   requests:
@@ -28,19 +31,19 @@ spec:
           #     memory: "512Mi"
           livenessProbe:
             httpGet:
-              path: / # Or your app's health check endpoint
+              path: /
               port: 3000
             initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: / # Or your app's health check endpoint
+              path: /
               port: 3000
             initialDelaySeconds: 15
             periodSeconds: 5
           startupProbe:
             httpGet:
-              path: / # Or your app's health check endpoint
+              path: /
               port: 3000
             failureThreshold: 30
             periodSeconds: 10
