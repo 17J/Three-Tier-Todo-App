@@ -1,11 +1,48 @@
 ---
-# Deployment for MySQL Database
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+type: Opaque
+data:
+  mysql-root-password: eW91cnJvb3RwYXNzd29yZA==
+  mysql-user: eW91cmRidXNlcg==
+  mysql-password: eW91cmRicGFzc3dvcmQ=
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /mnt/data/mysql
+  storageClassName: standard
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pv-claim
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: standard
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mysql-deployment
 spec:
-  replicas: 1 # For production, consider using a managed database service or a more robust MySQL setup.
+  replicas: 1
   selector:
     matchLabels:
       app: mysql
@@ -16,26 +53,30 @@ spec:
     spec:
       containers:
         - name: mysql-container
-          image: mysql:8 # or any other version. Use specific tags instead of 'latest'
+          image: mysql:8
           ports:
             - containerPort: 3306
           env:
             - name: MYSQL_ROOT_PASSWORD
-              value: yourrootpassword #replace. Use Kubernetes Secrets!
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-root-password
             - name: MYSQL_DATABASE
-              value: yourdatabase #replace
+              value: yourdatabase
             - name: MYSQL_USER
-              value: yourdbusername #replace. Use Kubernetes Secrets!
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-user
             - name: MYSQL_PASSWORD
-              value: yourdbpassword #replace. Use Kubernetes Secrets!
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-password
           volumeMounts:
             - name: mysql-data
               mountPath: /var/lib/mysql
-      volumes:
-        - name: mysql-data
-          persistentVolumeClaim: # For production, use persistent volumes.
-            claimName: mysql-pv-claim # replace with your persistent volume claim name.
-          # For production, add resource requests/limits.
           livenessProbe:
             tcpSocket:
               port: 3306
@@ -51,9 +92,12 @@ spec:
               port: 3306
             failureThreshold: 30
             periodSeconds: 10
+      volumes:
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: mysql-pv-claim
 
 ---
-# Service for MySQL Database
 apiVersion: v1
 kind: Service
 metadata:
@@ -65,4 +109,4 @@ spec:
     - protocol: TCP
       port: 3306
       targetPort: 3306
-  type: ClusterIP # Internal service.
+  type: ClusterIP
