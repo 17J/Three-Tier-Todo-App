@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: backend-container
-          image: 17rj/three-tier-todo-backend:latest # Replace with your Java app image. Use specific tags instead of 'latest'.
+          image: devopsrealtime.azurecr.io/dev # Replace with your Java app image. Use specific tags instead of 'latest'.
           ports:
             - containerPort: 8080 # Default Spring Boot port, or your configured port.
           env: #Pass database connection properties
