@@ -1,112 +1,39 @@
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: mysql-secret
-type: Opaque
-data:
-  mysql-root-password: eW91cnJvb3RwYXNzd29yZA==
-  mysql-user: eW91cmRidXNlcg==
-  mysql-password: eW91cmRicGFzc3dvcmQ=
-
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: mysql-pv
-spec:
-  capacity:
-    storage: 1Gi
-  accessModes:
-    - ReadWriteOnce
-  hostPath:
-    path: /mnt/data/mysql
-  storageClassName: standard
-
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: mysql-pv-claim
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
-  storageClassName: standard
-
----
+# MySQL Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mysql-deployment
+  name: mysql
 spec:
-  replicas: 1
   selector:
     matchLabels:
       app: mysql
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
         app: mysql
     spec:
       containers:
-        - name: mysql-container
-          image: mysql:8
-          ports:
-            - containerPort: 3306
-          env:
-            - name: MYSQL_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: mysql-secret
-                  key: mysql-root-password
-            - name: MYSQL_DATABASE
-              value: yourdatabase
-            - name: MYSQL_USER
-              valueFrom:
-                secretKeyRef:
-                  name: mysql-secret
-                  key: mysql-user
-            - name: MYSQL_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: mysql-secret
-                  key: mysql-password
-          volumeMounts:
-            - name: mysql-data
-              mountPath: /var/lib/mysql
-          livenessProbe:
-            tcpSocket:
-              port: 3306
-            initialDelaySeconds: 60
-            periodSeconds: 10
-          readinessProbe:
-            tcpSocket:
-              port: 3306
-            initialDelaySeconds: 30
-            periodSeconds: 5
-          startupProbe:
-            tcpSocket:
-              port: 3306
-            failureThreshold: 30
-            periodSeconds: 10
-      volumes:
-        - name: mysql-data
-          persistentVolumeClaim:
-            claimName: mysql-pv-claim
-
+      - image: mysql:8
+        name: mysql
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: "Test@123"
+        - name: MYSQL_DATABASE
+          value: "bankappdb"
+        ports:
+        - containerPort: 3306
+          name: mysql
 ---
+# MySQL Service
 apiVersion: v1
 kind: Service
 metadata:
   name: mysql-service
 spec:
+  ports:
+  - port: 3306
   selector:
     app: mysql
-  ports:
-    - protocol: TCP
-      port: 3306
-      targetPort: 3306
-  type: ClusterIP
