@@ -1,0 +1,149 @@
+trigger:
+  none  # Manual trigger, modify to 'main' if you want CI on push
+
+# Using a self-hosted agent named 'DEV'
+pool:
+  name: DEV
+
+stages:
+
+# ─────────────────────────────────────────────────────────────
+# Stage 1: Maven Compile (Backend)
+# ─────────────────────────────────────────────────────────────
+- stage: compile
+  displayName: '🔧 Backend Maven Compile'
+  jobs:
+    - job: maven_compile
+      displayName: '🔨 Compile Java Backend Code'
+      steps:
+        - task: Maven@4
+          inputs:
+            azureSubscription: 'Free Trial(9245e272-a223-4574-b55d-5c4353e70a28)'
+            mavenPomFile: 'backend/pom.xml'
+            goals: 'compile'
+            publishJUnitResults: true
+            testResultsFiles: '**/surefire-reports/TEST-*.xml'
+            javaHomeOption: 'JDKVersion'
+            mavenVersionOption: 'Default'
+
+# ─────────────────────────────────────────────────────────────
+# Stage 2: Maven Test
+# ─────────────────────────────────────────────────────────────
+- stage: test
+  displayName: '🧪 Backend Maven Unit Tests'
+  jobs:
+    - job: maven_test
+      displayName: '🧪 Run Tests for Backend'
+      steps:
+        - task: Maven@4
+          inputs:
+            azureSubscription: 'Free Trial(9245e272-a223-4574-b55d-5c4353e70a28)'
+            mavenPomFile: 'backend/pom.xml'
+            goals: 'test'
+            publishJUnitResults: true
+            testResultsFiles: '**/surefire-reports/TEST-*.xml'
+            javaHomeOption: 'JDKVersion'
+            mavenVersionOption: 'Default'
+
+# ─────────────────────────────────────────────────────────────
+# Stage 3: NPM Install (Frontend)
+# ─────────────────────────────────────────────────────────────
+- stage: npm_install
+  displayName: '🌐 Frontend NPM Install'
+  jobs:
+    - job: frontend_npm_install
+      displayName: '📦 Install Frontend Dependencies'
+      steps:
+        - task: Npm@1
+          inputs:
+            command: 'install'
+            workingDir: 'frontend/'
+
+# ─────────────────────────────────────────────────────────────
+# Stage 4: Security Scan with Trivy
+# ─────────────────────────────────────────────────────────────
+- stage: trivy_scan
+  displayName: '🔍 Trivy Security Scan'
+  jobs:
+    - job: trivy
+      displayName: '🛡️ Trivy Scan for Vulnerabilities'
+      steps:
+        - task: CmdLine@2
+          inputs:
+            script: |
+              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
+              ./trivy fs . --format table --severity HIGH,CRITICAL -o trivy-repo-report.html
+
+# ─────────────────────────────────────────────────────────────
+# Stage 5: Push Artifacts to Maven Feed
+# ─────────────────────────────────────────────────────────────
+- stage: push_artifacts
+  displayName: '📦 Push Maven Artifacts'
+  jobs:
+    - job: push_to_feed
+      displayName: '📤 Push Backend Artifacts to Azure Artifacts'
+      steps:
+        - task: MavenAuthenticate@0
+          inputs:
+            artifactsFeeds: 'dev_mvn'
+        - task: Maven@4
+          inputs:
+            azureSubscription: 'Free Trial(9245e272-a223-4574-b55d-5c4353e70a28)'
+            mavenPomFile: 'backend/pom.xml'
+            goals: 'deploy'
+            publishJUnitResults: true
+            testResultsFiles: '**/surefire-reports/TEST-*.xml'
+            javaHomeOption: 'JDKVersion'
+            mavenVersionOption: 'Default'
+
+# ─────────────────────────────────────────────────────────────
+# Stage 6: Docker Build & Push to ACR
+# ─────────────────────────────────────────────────────────────
+- stage: docker_build_push
+  displayName: '🐳 Docker Build & Push'
+  jobs:
+    - job: docker_push
+      displayName: '🚀 Build & Push Frontend/Backend Images'
+      steps:
+        - task: Docker@2
+          displayName: '📤 Push Frontend Image'
+          inputs:
+            containerRegistry: 'devss'
+            repository: 'demo/frontend'
+            command: 'buildAndPush'
+            Dockerfile: 'frontend/Dockerfile'
+            tags: |
+              $(Build.BuildId)
+
+        - task: Docker@2
+          displayName: '📤 Push Backend Image'
+          inputs:
+            containerRegistry: 'devss'
+            repository: 'demo/backend'
+            command: 'buildAndPush'
+            Dockerfile: 'backend/Dockerfile'
+            tags: |
+              $(Build.BuildId)
+
+# ─────────────────────────────────────────────────────────────
+# Stage 7: GitOps-Based AKS Deploy (via ArgoCD - optional)
+# ─────────────────────────────────────────────────────────────
+# If you're using ArgoCD, update the GitOps repo instead of deploying directly.
+# Uncomment this block if you want Azure DevOps to deploy directly to AKS.
+
+- stage: aks_deploy
+  displayName: '🚢 Deploy to AKS Cluster'
+  jobs:
+    - job: deploy_aks
+      displayName: '🔧 Apply Kubernetes Manifests'
+      steps:
+        - task: KubernetesManifest@1
+          inputs:
+            action: 'deploy'
+            connectionType: 'kubernetesServiceConnection'
+            kubernetesServiceConnection: 'demos'
+            namespace: 'default'
+            manifests: |
+              K8s/frontend-ds-service.yml
+              K8s/db-ds-service.yml
+              K8s/backend-ds-service.yml
