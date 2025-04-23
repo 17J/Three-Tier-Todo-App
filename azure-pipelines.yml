@@ -5,6 +5,15 @@ trigger:
 pool:
   name: DEV
 
+variables:
+  SONARQUBE_ENDPOINT: 'SonarQubeServiceConnection'
+  SNYK_TOKEN: $(SNYK_TOKEN)
+  GITLEAKS_VERSION: '8.17.0'
+  BUILD_TAG: $(Build.BuildId)
+
+
+
+
 stages:
 
 # ─────────────────────────────────────────────────────────────
@@ -60,22 +69,90 @@ stages:
             workingDir: 'frontend/'
 
 # ─────────────────────────────────────────────────────────────
-# Stage 4: Security Scan with Trivy
+# 4. Code Quality - SonarQube
 # ─────────────────────────────────────────────────────────────
-- stage: trivy_scan
-  displayName: '🔍 Trivy Security Scan'
+- stage: sonar
+  displayName: '🔍 Code Quality - SonarQube'
   jobs:
-    - job: trivy
-      displayName: '🛡️ Trivy Scan for Vulnerabilities'
+    - job: sonar_analysis
       steps:
-        - task: CmdLine@2
+        - task: SonarQubePrepare@5
           inputs:
-            script: |
-              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
-              ./trivy fs . --format table --severity HIGH,CRITICAL -o trivy-repo-report.html
+            SonarQube: $(SONARQUBE_ENDPOINT)
+            scannerMode: 'CLI'
+            configMode: 'manual'
+            cliProjectKey: 'demo-backend'
+            cliProjectName: 'Demo Backend'
+            cliSources: 'backend'
+
+        - task: Maven@4
+          inputs:
+            mavenPomFile: 'backend/pom.xml'
+            goals: 'verify'
+
+        - task: SonarQubeAnalyze@5
+        - task: SonarQubePublish@5
+          inputs:
+            pollingTimeoutSec: '300'
 
 # ─────────────────────────────────────────────────────────────
-# Stage 5: Push Artifacts to Maven Feed
+# 5. Security - Gitleaks
+# ─────────────────────────────────────────────────────────────
+- stage: gitleaks
+  displayName: '🕵️ Gitleaks Secret Scan'
+  jobs:
+    - job: gitleaks_scan
+      steps:
+        - script: |
+            curl -sSL https://github.com/zricethezav/gitleaks/releases/download/v$(GITLEAKS_VERSION)/gitleaks_$(GITLEAKS_VERSION)_linux_x64.tar.gz | tar -xz
+            ./gitleaks detect --source . --report-format sarif --report-path gitleaks-report.sarif
+          displayName: 'Run Gitleaks'
+
+# ─────────────────────────────────────────────────────────────
+# 6. Security - OWASP Dependency-Check
+# ─────────────────────────────────────────────────────────────
+- stage: owasp
+  displayName: '🛡️ OWASP Dependency Check'
+  jobs:
+    - job: owasp_scan
+      steps:
+        - script: |
+            curl -sLO https://github.com/jeremylong/DependencyCheck/releases/download/v9.0.10/dependency-check-9.0.10-release.zip
+            unzip dependency-check-*.zip
+            ./dependency-check/bin/dependency-check.sh --project "backend" --scan backend --format HTML --out dependency-report
+          displayName: 'Run OWASP Dependency-Check'
+
+# ─────────────────────────────────────────────────────────────
+# 7. Security - Snyk
+# ─────────────────────────────────────────────────────────────
+- stage: snyk
+  displayName: '🧬 Snyk Vulnerability Scan'
+  jobs:
+    - job: snyk_scan
+      steps:
+        - task: UseNode@1
+          inputs:
+            version: '16.x'
+        - script: |
+            npm install -g snyk
+            snyk auth $(SNYK_TOKEN)
+            snyk test --file=backend/pom.xml --all-projects
+          displayName: 'Run Snyk Scan'
+
+# ─────────────────────────────────────────────────────────────
+# 8. Security - Trivy
+# ─────────────────────────────────────────────────────────────
+- stage: trivy
+  displayName: '🧯 Trivy Repo Scan'
+  jobs:
+    - job: trivy_repo_scan
+      steps:
+        - script: |
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
+            ./trivy fs . --format table --severity HIGH,CRITICAL -o trivy-report.html
+          displayName: 'Run Trivy Repo Scan'
+# ─────────────────────────────────────────────────────────────
+# Stage 9: Push Artifacts to Maven Feed
 # ─────────────────────────────────────────────────────────────
 - stage: push_artifacts
   displayName: '📦 Push Maven Artifacts'
@@ -97,7 +174,7 @@ stages:
             mavenVersionOption: 'Default'
 
 # ─────────────────────────────────────────────────────────────
-# Stage 6: Docker Build & Push to ACR
+# Stage 10: Docker Build & Push to ACR
 # ─────────────────────────────────────────────────────────────
 - stage: docker_build_push
   displayName: '🐳 Docker Build & Push'
@@ -126,7 +203,7 @@ stages:
               $(Build.BuildId)
 
 # ─────────────────────────────────────────────────────────────
-# Stage 7: GitOps-Based AKS Deploy (via ArgoCD - optional)
+# Stage 11: GitOps-Based AKS Deploy (via ArgoCD - optional)
 # ─────────────────────────────────────────────────────────────
 # If you're using ArgoCD, update the GitOps repo instead of deploying directly.
 # Uncomment this block if you want Azure DevOps to deploy directly to AKS.
