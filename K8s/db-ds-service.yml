@@ -22,7 +22,7 @@ spec:
         - name: MYSQL_ROOT_PASSWORD
           value: "Test@123"
         - name: MYSQL_DATABASE
-          value: "bankappdb"
+          value: "mydb"
         ports:
         - containerPort: 3306
           name: mysql
