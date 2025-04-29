@@ -7,7 +7,6 @@ Task-Manager-App is an advanced Project.
 - Spring Boot
 - Spring MVC
 - Spring Data JPA
-- Hibernate
 - MySQL
 - Thymeleaf
 - React JS
