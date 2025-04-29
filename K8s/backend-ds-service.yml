@@ -23,7 +23,7 @@ spec:
             - name: SPRING_DATASOURCE_URL
               value: jdbc:mysql://mysql-service:3306/mydb #replace yourdatabase
             - name: SPRING_DATASOURCE_USERNAME
-              value: test #replace
+              value: root #replace
             - name: SPRING_DATASOURCE_PASSWORD
               value: Test@123 #replace
           # Add resource requests/limits for production
