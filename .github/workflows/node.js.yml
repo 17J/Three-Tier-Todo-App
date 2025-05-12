@@ -51,4 +51,28 @@ jobs:
           echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
           docker push 17rj/three-tier-todo-backend
 
+  deploy-k8s-aks:
+    needs: backend-build
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v1.4.6
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          
+      - name: Set AKS context
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: devk8s
+          cluster-name: devk8s
+
+      - name: Deploy manifests to AKS
+        run: |
+          kubectl apply -f K8s/
+    
+
     
