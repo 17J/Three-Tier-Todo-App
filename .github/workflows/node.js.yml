@@ -24,3 +24,8 @@ jobs:
       run: |
         npm install
         npm run build
+    - name: Docker Build and Push
+      run: |
+        docker build -t 17rj/three-tier-todo-frontend  frontend/
+        echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ var.DOCKER_USERNAME }} --password-stdin
+        docker push 17rj/three-tier-todo-frontend:latest
