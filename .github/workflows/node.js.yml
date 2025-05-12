@@ -18,6 +18,8 @@ jobs:
       with:
         node-version: 18
         cache: 'npm'
+        cache-dependency-path: Frontend/package-lock.json
+        
     - name: Install and Build
       working-directory: frontend
       run: |
