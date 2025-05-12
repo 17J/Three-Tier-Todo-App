@@ -1,82 +1,86 @@
-
-name: Node.js CI
+name: Three-Tier App CI/CD
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main" ]  # 👈 In prod, consider deploying only from 'main' or release branches
 
 permissions:
-  id-token: write
+  id-token: write  # 👈 Required for Azure OIDC login
   contents: read
-  
+
 jobs:
   frontend-build:
     runs-on: self-hosted
-
     steps:
     - uses: actions/checkout@v4
-    - name: Use node
+
+    - name: Use Node.js
       uses: actions/setup-node@v4
       with:
         node-version: 18
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
-        
-    - name: Install and Build
+
+    - name: Install and Build React App
       working-directory: frontend
       run: |
-        npm install
+        npm ci  # 👈 More reliable for production builds
         npm run build
-    - name: Docker Build and Push
+
+    - name: Docker Build and Push (Frontend)
       run: |
-        docker build -t 17rj/three-tier-todo-frontend  frontend/
-        echo  ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+        docker build -t 17rj/three-tier-todo-frontend:latest frontend/
+        echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
         docker push 17rj/three-tier-todo-frontend:latest
-  
+
   backend-build:
     needs: frontend-build
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Setup JDK
-        uses: actions/setup-java@v3
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+    - name: Setup JDK
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
 
-      - name: Build with Maven
-        working-directory: backend
-        run: mvn clean package
+    - name: Build Java Backend with Maven
+      working-directory: backend
+      run: |
+        mvn clean verify  # 👈 'verify' ensures unit/integration tests run
 
-      - name: Docker Build and Push (Backend)
-        run: |
-          docker build -t 17rj/three-tier-todo-backend backend/
-          echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
-          docker push 17rj/three-tier-todo-backend
+    - name: Docker Build and Push (Backend)
+      run: |
+        docker build -t 17rj/three-tier-todo-backend:latest backend/
+        echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+        docker push 17rj/three-tier-todo-backend:latest
 
   deploy-k8s-aks:
     needs: backend-build
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Azure login
-        uses: azure/login@v1.4.6
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          
-      - name: Set AKS context
-        uses: azure/aks-set-context@v3
-        with:
-          resource-group: devk8s
-          cluster-name: devk8s
+    - name: Azure login via OIDC
+      uses: azure/login@v1.4.6
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Deploy manifests to AKS
-        run: |
-          kubectl apply -f K8s/
-    
+    - name: Set AKS context
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: devk8s
+        cluster-name: devk8s
 
-    
+    - name: Deploy Kubernetes Manifests
+      run: |
+        kubectl apply -f K8s/
+
+    # ✅ Optional for production
+    # - name: Verify Deployment
+    #   run: |
+    #     kubectl rollout status deployment frontend-deployment -n default
+    #     kubectl rollout status deployment backend-deployment -n default
