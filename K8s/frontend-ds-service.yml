@@ -1,64 +1,98 @@
-# Deployment for React Frontend
+---
+# --------------------------------------------------------------------------
+# KUBERNETES DEPLOYMENT - FRONTEND (Production Grade)
+# This configuration ensures High Availability, Zero-Downtime Rolling Updates,
+# and necessary Health Checks for stability.
+# --------------------------------------------------------------------------
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend-deployment
+  # Add labels here for better organization and Prometheus scraping
+  labels:
+    app: frontend
+    environment: production
 spec:
-  replicas: 1 # For production, increase replicas for high availability
+  # 1. High Availability: Use multiple replicas for redundancy.
+  replicas: 3
   selector:
     matchLabels:
       app: frontend
+  # 2. Deployment Strategy: Enforce Zero-Downtime Rolling Update
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Allows one extra pod during the rollout (3 -> 4 total pods temporarily).
+      maxSurge: 1
+      # Ensures that zero pods are unavailable during the rollout (critical for HA).
+      maxUnavailable: 0
   template:
     metadata:
       labels:
         app: frontend
+        # MANDATORY for Istio: Use a specific version label for Canary/Blue-Green
+        version: v1.0.0
     spec:
+      # 3. Graceful Termination: Gives the pod 30 seconds to shut down gracefully
+      # and handle existing connections before being forcibly terminated.
+      terminationGracePeriodSeconds: 30
       containers:
         - name: frontend-container
-          image: 17rj/three-tier-todo-frontend:latest # Replace with your React app image. Use specific tags instead of 'latest' for immutability
+          # Always use specific, immutable tags instead of 'latest' in Production
+          image: 17rj/three-tier-todo-frontend:v1.0.0
           ports:
-            - containerPort: 3000 # Default React port
+            - containerPort: 3000
           env:
+            # Environment variable pointing to the backend service's internal DNS name
             - name: REACT_APP_BACKEND_URL
-              value: "http://backend-service:8080" # Replace with actual backend service name if different
-          # Add resource requests/limits for production
-          # resources:
-          #   requests:
-          #     cpu: "100m"
-          #     memory: "128Mi"
-          #   limits:
-          #     cpu: "500m"
-          #     memory: "512Mi"
-          # livenessProbe:
-          #   httpGet:
-          #     path: /
-          #     port: 3000
-          #   initialDelaySeconds: 30
-          #   periodSeconds: 10
-          # readinessProbe:
-          #   httpGet:
-          #     path: /
-          #     port: 3000
-          #   initialDelaySeconds: 15
-          #   periodSeconds: 5
-          # startupProbe:
-          #   httpGet:
-          #     path: /
-          #     port: 3000
-          #   failureThreshold: 30
-          #   periodSeconds: 10
+              value: "http://backend-service:8080"
+
+          # 4. Resource Management: Essential for cluster stability and capacity planning
+          resources:
+            requests:
+              # Minimum required resources (guaranteed by the scheduler)
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              # Maximum allowed resources (prevents resource hogging or OOMKilled errors)
+              cpu: "500m"
+              memory: "512Mi"
+
+          # 5. Health Probes: Vital for production readiness and stability
+          # Liveness Probe: Checks if the application is still running (crashed = restart)
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 30 # Give the app time to start up before first check
+            periodSeconds: 10 # Check every 10 seconds
+            failureThreshold: 3 # Restart after 3 failed checks
+
+          # Readiness Probe: Checks if the application is ready to receive traffic
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 15 # Start checking readiness sooner
+            periodSeconds: 5 # Check more frequently for faster service inclusion
+            failureThreshold: 2
 
 ---
-# Service for React Frontend
+# KUBERNETES SERVICE - Load Balancer / Istio Integration
 apiVersion: v1
 kind: Service
 metadata:
   name: frontend-service
+  labels:
+    app: frontend
 spec:
   selector:
     app: frontend
   ports:
     - protocol: TCP
-      port: 80 # Service port
+      port: 80 # Service exposed port
       targetPort: 3000 # Container port
-  type: LoadBalancer # For production, use LoadBalancer for external access, or Ingress for more advanced routing
+  # Type: LoadBalancer if using traditional Ingress Controller (Nginx/HAProxy).
+  # If using Istio (Service Mesh), you usually use ClusterIP here and expose
+  # the service externally via an Istio Gateway resource.
+  type: LoadBalancer

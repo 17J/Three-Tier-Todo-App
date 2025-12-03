@@ -1,69 +1,134 @@
+# --------------------------------------------------------------------------
+# KUBERNETES SECRET (Sensitive Data: Password)
+# Production secrets must be Base64 encoded.
+# Password 'Test@123' is encoded as 'VGVzdEAxMjM='.
+# --------------------------------------------------------------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+type: Opaque
+data:
+  password: VGVzdEAxMjM= # Base64 encoded value for 'Test@123'
+
 ---
-# Deployment for Java Backend
+# --------------------------------------------------------------------------
+# KUBERNETES CONFIGMAP (Non-Sensitive Data: Username)
+# ConfigMaps are stored in plain text.
+# --------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-config
+data:
+  username: root # Plain text username
+  # We can also store connection string here if needed:
+  # jdbc-url: jdbc:mysql://mysql-svc:3306/mydb
+
+
+
+---
+# --------------------------------------------------------------------------
+# KUBERNETES DEPLOYMENT - JAVA BACKEND (Production Grade)
+# Ensures high performance, proper resource isolation, and secure configuration.
+# --------------------------------------------------------------------------
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend-deployment
+  labels:
+    app: backend
+    environment: production
 spec:
-  replicas: 1 # For production, increase replicas for high availability
+  # 1. High Availability: Use multiple replicas for redundancy.
+  replicas: 3
   selector:
     matchLabels:
       app: backend
+  # 2. Deployment Strategy: Enforce Zero-Downtime Rolling Update
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1 
+      maxUnavailable: 0 
   template:
     metadata:
       labels:
         app: backend
+        # MANDATORY for Istio: Use a specific version label for Canary/Blue-Green
+        version: v1.0.0
     spec:
+      # 3. Graceful Termination: Gives the JVM time (60s) to shut down and release resources/connections.
+      terminationGracePeriodSeconds: 60 
       containers:
         - name: backend-container
-          image: 17rj/three-tier-todo-backend:latest # Replace with your Java app image. Use specific tags instead of 'latest'.
+          # Always use specific, immutable tags instead of 'latest' in Production
+          image: 17rj/three-tier-todo-backend:v1.0.0 
           ports:
-            - containerPort: 8080 # Default Spring Boot port, or your configured port.
-          env: #Pass database connection properties
+            - containerPort: 8080
+          env: 
+            # 4. Database Connection URL: Uses the internal DNS name of the MySQL Service
             - name: SPRING_DATASOURCE_URL
-              value: jdbc:mysql://mysql-service:3306/mydb #replace yourdatabase
+              value: jdbc:mysql://mysql-svc:3306/mydb # Assumes your MySQL Service is named 'mysql-svc'
+            
+            # 5. Security: Injecting non-sensitive username from ConfigMap
             - name: SPRING_DATASOURCE_USERNAME
-              value: root #replace
+              valueFrom:
+                configMapKeyRef: # Using ConfigMapKeyRef
+                  name: db-config # Referencing the new ConfigMap
+                  key: username # Key name inside the ConfigMap
+            
+            # 6. Security: Injecting sensitive password from Secret
             - name: SPRING_DATASOURCE_PASSWORD
-              value: Test@123 #replace
-          # Add resource requests/limits for production
-          # resources:
-          #   requests:
-          #     cpu: "200m"
-          #     memory: "256Mi"
-          #   limits:
-          #     cpu: "1000m"
-          #     memory: "1Gi"
-          # livenessProbe:
-          #   httpGet:
-          #     path: /actuator/health # Spring Boot actuator health endpoint
-          #     port: 8080
-          #   initialDelaySeconds: 60
-          #   periodSeconds: 10
-          # readinessProbe:
-          #   httpGet:
-          #     path: /actuator/health # Spring Boot actuator health endpoint
-          #     port: 8080
-          #   initialDelaySeconds: 30
-          #   periodSeconds: 5
-          # startupProbe:
-          #   httpGet:
-          #     path: /actuator/health # Spring Boot actuator health endpoint
-          #     port: 8080
-          #   failureThreshold: 30
-          #   periodSeconds: 10
+              valueFrom:
+                secretKeyRef: # Using SecretKeyRef
+                  name: db-credentials # Referencing the new Secret
+                  key: password # Key name inside the Secret (contains base64 value)
+          
+          # 7. Resource Management: Essential for JVM stability and avoiding throttling
+          resources:
+            requests:
+              # Minimum required resources (Java apps need more memory/CPU to start)
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              # Hard limit on resources (OOMKiller will terminate the pod if it exceeds memory limit)
+              cpu: "1500m" # 1.5 CPU Core Limit
+              memory: "1Gi" # 1 Gigabyte Memory Limit
+          
+          # 8. Health Probes: Using the Spring Boot Actuator health endpoint
+          # Liveness Probe: If this fails, the container is restarted.
+          livenessProbe:
+            httpGet:
+              path: /actuator/health # Requires Spring Boot Actuator dependency
+              port: 8080
+            initialDelaySeconds: 60 # Give the Java app time to fully start
+            periodSeconds: 10
+            failureThreshold: 3
+          
+          # Readiness Probe: If this fails, the pod is removed from the Service's endpoints (no traffic routed)
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 30 # Start checking readiness sooner than liveness
+            periodSeconds: 5
+            failureThreshold: 2
 
 ---
-# Service for Java Backend
+# KUBERNETES SERVICE - Backend (Internal Communication)
 apiVersion: v1
 kind: Service
 metadata:
   name: backend-service
+  labels:
+    app: backend
 spec:
   selector:
     app: backend
   ports:
     - protocol: TCP
-      port: 8080 # Service port
+      port: 8080 # Service port (used by frontend)
       targetPort: 8080 # Container port
-  type: ClusterIP # Good for internal communication.
+  # ClusterIP is ideal for services that are only accessed internally within the cluster (like a backend API).
+  type: ClusterIP
