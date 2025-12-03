@@ -1,0 +1,19 @@
+# Istio Gateway exposes the entry point for external traffic to enter the mesh.
+# This acts as the external Load Balancer/Ingress point for the application.
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: frontend-gateway
+spec:
+  # The gateway will listen on the default Istio Ingress Gateway service (usually on port 80/443)
+  selector:
+    # Use the default Istio ingress gateway label
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      # Replace this with your actual domain name in production
+      hosts:
+        - "*"

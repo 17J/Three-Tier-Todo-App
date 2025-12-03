@@ -1,0 +1,32 @@
+# DestinationRule defines policies (like load balancing, connection pools)
+# and explicitly defines the available versions (subsets) of a service.
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: backend-destination-rule
+spec:
+  # The Kubernetes Service name (backend-service)
+  host: backend-service
+  subsets:
+    # Subset for the current stable version (v1.0.0)
+    - name: v1
+      labels:
+        # Matches the label defined in the backend Deployment YAML
+        version: v1.0.0
+      # Optional: Add load balancing policies for V1 subset here if needed
+      # trafficPolicy:
+      #   loadBalancer:
+      #     simple: ROUND_ROBIN
+
+    # --- CANARY VERSIONS (Commented Out for Initial Setup) ---
+    # To start a Canary deployment, uncomment the required subset,
+    # deploy the new version (e.g., v2.0.0) with the matching label, and then
+    # update the VirtualService to shift traffic.
+
+    # - name: v2
+    #   labels:
+    #     version: v2.0.0 # This matches the label in the V2 Deployment
+
+    # - name: v3
+    #   labels:
+    #     version: v3.0.0 # This matches the label in the V3 Deployment

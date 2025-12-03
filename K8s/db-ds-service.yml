@@ -1,70 +1,133 @@
+# --------------------------------------------------------------------------
+# KUBERNETES SECRET (Sensitive Data: Password)
+# Production secrets must be Base64 encoded.
+# Password 'Test@123' is encoded as 'VGVzdEAxMjM='.
+# --------------------------------------------------------------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+type: Opaque
+data:
+  password: VGVzdEAxMjM= # Base64 encoded value for 'Test@123'
+
 ---
+# --------------------------------------------------------------------------
+# KUBERNETES CONFIGMAP (Non-Sensitive Data: Username)
+# ConfigMaps are stored in plain text.
+# --------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-config
+data:
+  username: root # Plain text username
+  # We can also store connection string here if needed:
+  # jdbc-url: jdbc:mysql://mysql-svc:3306/mydb
+
+---
+# --------------------------------------------------------------------------
+# KUBERNETES HEADLESS SERVICE - MYSQL (Required for StatefulSet)
+# DNS entries are created for each pod (e.g., mysql-db-0.mysql-svc).
+# --------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-svc # This matches the Service Name used in the Backend Deployment
+  labels:
+    app: mysql
+spec:
+  clusterIP: None # Makes this a Headless Service
+  selector:
+    app: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306
+      name: mysql
+
+---
+# --------------------------------------------------------------------------
+# KUBERNETES STATEFULSET - MYSQL (Production Grade)
+# Ensures unique identity, ordered startup/shutdown, and persistent data.
+# --------------------------------------------------------------------------
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: mysql
+  name: mysql-db
+  labels:
+    app: mysql
+    environment: production
 spec:
-  serviceName: mysql-headless
-  replicas: 1
+  serviceName: mysql-svc # Must match the Headless Service name
+  # 1. High Availability: Use 3 replicas for database redundancy and robustness.
+  replicas: 3
   selector:
     matchLabels:
       app: mysql
+  # StatefulSet uses RollingUpdate by default. For databases, updates must be handled carefully.
+  # If the database is clustered (like Galera), the update order is critical.
   template:
     metadata:
       labels:
         app: mysql
+        version: v8.0 # Tag for version tracking
     spec:
+      # 2. Graceful Termination: Give the DB process time to flush buffers and close connections.
+      terminationGracePeriodSeconds: 90
       containers:
-        - name: mysql
-          image: mysql:8
+        - name: mysql-container
+          image: mysql:8.0.35 # Use a specific, stable version instead of just '8'
           ports:
             - containerPort: 3306
               name: mysql
           env:
+            # 3. Security: Retrieve password from the centralized Secret (db-credentials)
             - name: MYSQL_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: mysql-secret
-                  key: root-password
+                  name: db-credentials # Referencing the Secret at the top of the file
+                  key: password # Key name inside the secret (Base64 encoded)
             - name: MYSQL_DATABASE
               value: "mydb"
+
+          # 4. Resource Management: MySQL is demanding; give it adequate resources.
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m" # 2 CPU Core Limit
+              memory: "2Gi" # Hard memory limit for the DB
+
+          # 5. Health Probes: Ensure the database server is responsive and ready.
+          # Liveness Probe: Checks if the MySQL process is running.
+          livenessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "-h", "localhost"] # Standard MySQL check
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+
+          # Readiness Probe: Ensures MySQL is ready to accept connections before routing traffic.
+          readinessProbe:
+            exec:
+              command: ["mysql", "-h", "127.0.0.1", "-e", "SELECT 1"] # Check DB connection
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+
           volumeMounts:
             - name: data
               mountPath: /var/lib/mysql
+
+  # 6. Persistent Storage: Dynamic provisioning of storage for each replica (mysql-db-0, mysql-db-1, etc.)
   volumeClaimTemplates:
     - metadata:
-        name: data
+        name: data # Must match the name used in volumeMounts
       spec:
         accessModes: ["ReadWriteOnce"]
+        # Use a reliable Storage Class (e.g., gp3 on AWS)
+        storageClassName: gp3
         resources:
           requests:
-            storage: 5Gi
-        storageClassName: gp3
-
----
-# 2. Headless Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: mysql-headless
-spec:
-  clusterIP: None
-  selector:
-    app: mysql
-  ports:
-    - port: 3306
-      targetPort: 3306
-
----
-# 3. Normal Service
-apiVersion: v1
-kind: Service
-metadata:
-  name: mysql-service
-spec:
-  selector:
-    app: mysql
-  ports:
-    - port: 3306
-      targetPort: 3306
-  type: ClusterIP
+            storage: 10Gi # Doubled storage to 10Gi for production use

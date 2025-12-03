@@ -1,0 +1,47 @@
+# VirtualService defines the routing rules for the specified host.
+# This is where we implement Blue/Green, Canary, or A/B testing logic.
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: three-tier-virtual-service
+spec:
+  # 1. GATEWAYS: The traffic must come through the defined Gateway
+  gateways:
+    - frontend-gateway
+    # Also apply rules to internal mesh traffic
+    - mesh
+
+  # 2. HOSTS: The domain names this VirtualService applies to
+  hosts:
+    - "*" # Applies to all domains exposed by the Gateway
+
+  # 3. HTTP RULES: Define how HTTP traffic is routed
+  http:
+    - name: frontend-backend-route
+      match:
+        # Match all requests directed towards the frontend service
+        - uri:
+            prefix: "/"
+      route:
+        # --- INITIAL 100% TRAFFIC ROUTING TO V1 (STABLE) ---
+        - destination:
+            host: frontend-service # Route to the Kubernetes Frontend Service
+            subset: v1
+          weight: 100
+
+    # --- CANARY DEPLOYMENT LOGIC (Commented Out) ---
+    # To enable Canary, uncomment the section above and use the below configuration.
+    # This sends 90% traffic to the stable V1 and 10% to the new V2 (Canary).
+    # - name: canary-traffic-split
+    #   match:
+    #     - uri:
+    #         prefix: "/api" # Only apply Canary split to API routes
+    #   route:
+    #     - destination:
+    #         host: backend-service
+    #         subset: v1
+    #       weight: 90 # 90% of traffic goes to the stable V1
+    #     - destination:
+    #         host: backend-service
+    #         subset: v2
+    #       weight: 10 # 10% of traffic goes to the new Canary V2
